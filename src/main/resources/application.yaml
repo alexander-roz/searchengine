@@ -1,9 +1,24 @@
-# example values
+server:
+  port: 8080
 
+spring:
+  datasource:
+    username: root
+    password: MySQLRootPassword
+    url: jdbc:mysql://:3306/searchengine
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+# example values
 indexing-settings:
   sites:
     - url: https://www.lenta.ru
-      name: Р›РµРЅС‚Р°.СЂСѓ
+      name: Лента.ру
     - url: https://www.skillbox.ru
       name: Skillbox
     - url: https://www.playback.ru
