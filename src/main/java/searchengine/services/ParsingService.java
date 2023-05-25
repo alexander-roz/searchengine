@@ -1,8 +1,9 @@
 package searchengine.services;
 
-import searchengine.dto.RequestAnswer;
+import searchengine.dto.indexing.IndexingResponse;
 
 public interface ParsingService {
-    RequestAnswer startIndexing();
-    RequestAnswer stopIndexing();
+    IndexingResponse startIndexing();
+    IndexingResponse stopIndexing();
+    IndexingResponse indexPage(String url);
 }
