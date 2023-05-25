@@ -2,15 +2,18 @@ package searchengine.model.entities;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 import java.time.LocalDateTime;
+import java.util.Set;
 
 @Entity
 @Data
+@EqualsAndHashCode
 @Table(name = "site", schema = "search_engine")
 public class SiteEntity {
-    @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @Id()
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "site_id")
     private int siteID;
 
@@ -29,8 +32,4 @@ public class SiteEntity {
 
     @Column(name = "site_name", updatable = false, columnDefinition = "varchar(255)")
     private String name;
-
-//    @OneToMany(cascade = CascadeType.ALL)
-//    @JoinColumn(name = "page_id")
-//    private List<PageEntity> pages = new ArrayList<>();
 }

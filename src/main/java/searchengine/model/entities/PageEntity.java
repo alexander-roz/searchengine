@@ -2,11 +2,13 @@ package searchengine.model.entities;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
 @Entity
 @Data
+@EqualsAndHashCode
 @Table(name = "page", schema = "search_engine",
         indexes =
         @Index(name = "path_index",
@@ -15,7 +17,7 @@ import org.hibernate.annotations.OnDeleteAction;
 
 public class PageEntity {
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "page_id")
     private int pageID;
 

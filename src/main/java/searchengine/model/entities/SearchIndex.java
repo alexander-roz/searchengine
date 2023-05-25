@@ -2,10 +2,12 @@ package searchengine.model.entities;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 @Entity
 @Table
 @Data
+@EqualsAndHashCode
 public class SearchIndex {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
