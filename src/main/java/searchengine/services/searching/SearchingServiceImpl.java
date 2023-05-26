@@ -54,7 +54,7 @@ public class SearchingServiceImpl implements SearchingService {
             entitiesList = getEntitiesList(lemmasFromQuery, siteEntity, lemmasSortedByFrequency);
             LinkedHashMap<PageEntity, Integer> pagesByRelevance = sortPagesByRelevance(entitiesList);
             LinkedHashMap<PageEntity, Integer> sortedPages = sortPages(pagesByRelevance);
-            List<SearchData> generatedSearchDataList = generateSearchDataList(sortedPages, lemmasFromQuery, limit);
+            List<SearchData> generatedSearchDataList = generateSearchDataList(sortedPages, lemmasFromQuery, limit, offset);
             searchResponse = response(generatedSearchDataList);
         }
         else {
@@ -64,7 +64,7 @@ public class SearchingServiceImpl implements SearchingService {
             }
             LinkedHashMap<PageEntity, Integer> pagesByRelevance = sortPagesByRelevance(entitiesList);
             LinkedHashMap<PageEntity, Integer> sortedPages = sortPages(pagesByRelevance);
-            List<SearchData> generatedSearchDataList = generateSearchDataList(sortedPages, lemmasFromQuery, limit);
+            List<SearchData> generatedSearchDataList = generateSearchDataList(sortedPages, lemmasFromQuery, limit, offset);
             searchResponse = response(generatedSearchDataList);
         }
         return searchResponse;
@@ -111,8 +111,13 @@ public class SearchingServiceImpl implements SearchingService {
     private List<SearchData> generateSearchDataList(LinkedHashMap<PageEntity,
                                                     Integer> sortedPages,
                                                     Set<String> lemmasFromQuery,
-                                                    int limit){
+                                                    int limit, int offset){
         System.out.println("Формирование объектов SearchData для выдачи в Request");
+
+        if(offset != 0){
+            sortedPages.remove(sortedPages.keySet().stream().findFirst().get());
+        }
+
         List<SearchData> dataList = new ArrayList<>();
         int count = 0;
         for(Map.Entry<PageEntity, Integer> entry:sortedPages.entrySet()){
