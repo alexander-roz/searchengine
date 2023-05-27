@@ -12,20 +12,18 @@ import searchengine.model.entities.PageEntity;
 import searchengine.model.entities.SearchIndex;
 import searchengine.model.entities.SiteEntity;
 import searchengine.model.repositories.LemmaRepository;
-import searchengine.model.repositories.PageRepository;
 import searchengine.model.repositories.SearchIndexRepository;
 import searchengine.model.repositories.SiteRepository;
 import searchengine.services.SearchingService;
 import searchengine.services.parsing.Lemmatisation;
 
-import javax.swing.text.Document;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class SearchingServiceImpl implements SearchingService {
-    private final PageRepository pageRepository;
     private final SiteRepository siteRepository;
     private final LemmaRepository lemmaRepository;
     private final SearchIndexRepository indexRepository;
@@ -35,6 +33,8 @@ public class SearchingServiceImpl implements SearchingService {
 
     @Override
     public SearchResponse getSearchResults(String query, String siteUrl, Integer offset, Integer limit) {
+        long start = System.currentTimeMillis();
+        System.out.println("Начало поиска: " + start);
         if (query.isEmpty()) {
             return new SearchResponse(false,
                     "Задан пустой поисковый запрос",
@@ -44,40 +44,43 @@ public class SearchingServiceImpl implements SearchingService {
 
         Set<String> lemmasFromQuery = generateLemmasFromQuery(query);
 
-        Map<String, Integer> lemmasSortedByFrequency = sortLemmasByFrequency(lemmasFromQuery);
+        LinkedHashMap<String, Integer> lemmasSortedByFrequency = sortLemmasByFrequency(lemmasFromQuery);
 
         SearchResponse searchResponse = new SearchResponse();
+
         LinkedHashMap<LemmaEntity, PageEntity> entitiesList = new LinkedHashMap<>();
 
         if (siteUrl != null) {
             SiteEntity siteEntity = getSiteEntity(siteUrl);
             entitiesList = getEntitiesList(lemmasFromQuery, siteEntity, lemmasSortedByFrequency);
-            LinkedHashMap<PageEntity, Integer> pagesByRelevance = sortPagesByRelevance(entitiesList);
+
+            LinkedHashMap<PageEntity, Integer> pagesByRelevance = countAbsoluteRank(entitiesList);
             LinkedHashMap<PageEntity, Integer> sortedPages = sortPages(pagesByRelevance);
             List<SearchData> generatedSearchDataList = generateSearchDataList(sortedPages, lemmasFromQuery, limit, offset);
             searchResponse = response(generatedSearchDataList);
-        }
-        else {
-            for(Site site:sitesList.getSites()){
+        } else {
+            for (Site site : sitesList.getSites()) {
+                System.out.println("Поиск на сайте: " + site.getName());
                 SiteEntity siteEntity = getSiteEntity(site.getUrl());
                 entitiesList.putAll(getEntitiesList(lemmasFromQuery, siteEntity, lemmasSortedByFrequency));
             }
-            LinkedHashMap<PageEntity, Integer> pagesByRelevance = sortPagesByRelevance(entitiesList);
+            LinkedHashMap<PageEntity, Integer> pagesByRelevance = countAbsoluteRank(entitiesList);
             LinkedHashMap<PageEntity, Integer> sortedPages = sortPages(pagesByRelevance);
             List<SearchData> generatedSearchDataList = generateSearchDataList(sortedPages, lemmasFromQuery, limit, offset);
             searchResponse = response(generatedSearchDataList);
         }
+        System.out.println("Окончание поиска: " + (System.currentTimeMillis() - start));
         return searchResponse;
     }
 
     private LinkedHashMap<LemmaEntity, PageEntity> getEntitiesList(Set<String> lemmasFromQuery,
-                                              SiteEntity site,
-                                              Map<String, Integer> lemmasSortedByFrequency){
+                                                                   SiteEntity site,
+                                                                   LinkedHashMap<String, Integer> lemmasSortedByFrequency) {
         List<PageEntity> pagesListFromFirstLemma =
-                getPageEntityListFromFirstLemma((LinkedHashMap<String, Integer>) lemmasSortedByFrequency, site);
+                getPageEntityListFromFirstLemma(lemmasSortedByFrequency, site);
 
-        List<PageEntity> pagesFilteredByNextLemmas = filterPagesByOtherLemmas(
-                (LinkedHashMap<String, Integer>) lemmasSortedByFrequency, pagesListFromFirstLemma, site);
+        List<PageEntity> pagesFilteredByNextLemmas =
+                filterPagesByOtherLemmas(lemmasSortedByFrequency, pagesListFromFirstLemma, site);
 
         LinkedHashMap<LemmaEntity, PageEntity> finalPagesAndLemma = compareFinalPagesAndLemmas(
                 pagesFilteredByNextLemmas, lemmasFromQuery);
@@ -109,19 +112,19 @@ public class SearchingServiceImpl implements SearchingService {
     }
 
     private List<SearchData> generateSearchDataList(LinkedHashMap<PageEntity,
-                                                    Integer> sortedPages,
+            Integer> sortedPages,
                                                     Set<String> lemmasFromQuery,
-                                                    int limit, int offset){
-        System.out.println("Формирование объектов SearchData для выдачи в Request");
+                                                    int limit, int offset) {
+        System.out.println("- Формирование списка объектов SearchData -");
 
-        if(offset != 0){
+        if (offset != 0 && sortedPages.size() > 0) {
             sortedPages.remove(sortedPages.keySet().stream().findFirst().get());
         }
 
         List<SearchData> dataList = new ArrayList<>();
         int count = 0;
-        for(Map.Entry<PageEntity, Integer> entry:sortedPages.entrySet()){
-            if(count < limit) {
+        for (Map.Entry<PageEntity, Integer> entry : sortedPages.entrySet()) {
+            if (count < limit) {
                 dataList.add(
                         generateSearchData(
                                 entry.getKey().getSiteID().getUrl(),
@@ -134,26 +137,21 @@ public class SearchingServiceImpl implements SearchingService {
                 count++;
             }
         }
+        System.out.println("Сформировано " + dataList.size() + " объектов");
         return dataList;
     }
 
-    private String shortThePath(PageEntity page, SiteEntity site){
+    private String shortThePath(PageEntity page, SiteEntity site) {
         String pageURL = page.getPagePath();
         String siteURL = site.getUrl();
         return pageURL.replaceAll(siteURL, "");
     }
 
-    private SiteEntity getSiteEntity(String siteURL){
-        SiteEntity siteEntity = new SiteEntity();
-        for(SiteEntity site: siteRepository.findAll()){
-            if(site.getUrl().equals(siteURL)){
-                siteEntity = site;
-            }
-        }
-        return siteEntity;
+    private SiteEntity getSiteEntity(String siteURL) {
+        return siteRepository.findSiteEntityByUrlIsIgnoreCase(siteURL);
     }
 
-    private String getSnippet(PageEntity page, Set<String> lemmas){
+    private String getSnippet(PageEntity page, Set<String> lemmas) {
         List<String> queryList = new ArrayList<>(lemmas);
         snippetGenerator.setText(page.getPageContent());
         snippetGenerator.setQueryWords(queryList);
@@ -163,20 +161,19 @@ public class SearchingServiceImpl implements SearchingService {
     private Set<String> generateLemmasFromQuery(String query) {
         return lemmatisation.getLemmas(query).keySet();
     }
-    private Map<String, Integer> sortLemmasByFrequency(Set<String> lemmasList) {
-        System.out.println("Сортировка лемм по частоте встречаемости");
-        Map<String, Integer> foundLemmas = new LinkedHashMap<>();
+
+    private LinkedHashMap<String, Integer> sortLemmasByFrequency(Set<String> lemmasList) {
+        System.out.println("- Сортировка лемм по частоте встречаемости -");
+        LinkedHashMap<String, Integer> foundLemmas = new LinkedHashMap<>();
 
         for (String lemmaFromList : lemmasList) {
-            int frequancy = 0;
-            for (LemmaEntity lemmaEntity : lemmaRepository.findAll()) {
-                if (lemmaEntity.getLemma().equalsIgnoreCase(lemmaFromList)) {
-                    frequancy = frequancy + lemmaEntity.getFrequency();
-                }
-            }
-            foundLemmas.put(lemmaFromList, frequancy);
+            AtomicInteger frequency = new AtomicInteger();
+            List<LemmaEntity> lemmas = lemmaRepository.findLemmaEntitiesByLemmaEqualsIgnoreCase(lemmaFromList);
+            lemmas.forEach(lemmaEntity -> frequency.set(frequency.get() + lemmaEntity.getFrequency()));
+            foundLemmas.put(lemmaFromList, frequency.intValue());
         }
-        Map<String, Integer> sortedMap = foundLemmas.entrySet().stream()
+
+        LinkedHashMap<String, Integer> sortedMap = foundLemmas.entrySet().stream()
                 .sorted(Comparator.comparingInt(Map.Entry::getValue))
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
@@ -191,95 +188,67 @@ public class SearchingServiceImpl implements SearchingService {
     }
 
     private List<PageEntity> getPageEntityListFromFirstLemma(LinkedHashMap<String, Integer> sortedLemmas, SiteEntity site) {
-        System.out.println("Поиск страниц с самой редкой леммой из списка");
-        int count = 0;
+        System.out.println("- Поиск страниц с самой редкой леммой из списка -");
         List<PageEntity> listFromFirstLemma = new ArrayList<>();
+        ArrayList<String> lemmaList = new ArrayList<>();
 
         for (Map.Entry<String, Integer> entry : sortedLemmas.entrySet()) {
-
-            if (count == 0) {
-                List<LemmaEntity> lemmaEntityList = new ArrayList<>();
-                for (LemmaEntity l : lemmaRepository.findAll()) {
-                    if (l.getLemma().equals(entry.getKey())) {
-                        lemmaEntityList.add(l);
-                        System.out.println(l.getLemma());
-                    }
-                }
-                for (LemmaEntity lemma : lemmaEntityList) {
-                    for (SearchIndex index : indexRepository.findAll()) {
-                        if (index.getLemmaID().getLemmaID() == (lemma.getLemmaID())) {
-                            for (PageEntity page : pageRepository.findAll()) {
-                                if (page.getPageID() == index.getPageID().getPageID() && page.getSiteID().equals(site)) {
-                                    listFromFirstLemma.add(page);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            listFromFirstLemma.forEach(pageEntity -> System.out.println(pageEntity.getPagePath()));
-            count++;
+            lemmaList.add(entry.getKey());
         }
+        String rareLemma = lemmaList.get(0);
+        System.out.println("Самая редкая лемма: " + rareLemma);
+
+        ArrayList<SearchIndex> indexesFromFirstLemma =
+                indexRepository.findSearchIndicesByLemmaID_LemmaAndPageID_SiteID(rareLemma, site);
+        indexesFromFirstLemma.forEach(searchIndex -> listFromFirstLemma.add(searchIndex.getPageID()));
+
+        System.out.println("По первой лемме найдено страниц: " + listFromFirstLemma.size() + "\nсписок:");
+        listFromFirstLemma.forEach(page -> System.out.println(page.getPagePath()));
         return listFromFirstLemma;
     }
 
     private List<PageEntity> filterPagesByOtherLemmas(LinkedHashMap<String, Integer> sortedLemmas,
                                                       List<PageEntity> pagesListFromFirstLemma, SiteEntity site) {
-        System.out.println("Исключение страниц, на которых отсутствуют остальные леммы");
+        System.out.println("- Исключение страниц, на которых отсутствуют остальные леммы -");
         List<PageEntity> refactoredList = new ArrayList<>(pagesListFromFirstLemma);
 
-        int count = 0;
+        ArrayList<String> lemmaList = new ArrayList<>();
         for (Map.Entry<String, Integer> entry : sortedLemmas.entrySet()) {
-            if (count > 0) {
-                List<LemmaEntity> nextLemmaEntityList = new ArrayList<>();
-                for (LemmaEntity l : lemmaRepository.findAll()) {
-                    if (l.getLemma().equals(entry.getKey())) {
-                        nextLemmaEntityList.add(l);
-                    }
-                }
-                nextLemmaEntityList.forEach(lemmaEntity -> System.out.println(lemmaEntity.getLemma()));
+            lemmaList.add(entry.getKey());
+        }
+        if (lemmaList.size() > 0) {
+            lemmaList.remove(0);
 
-                for(PageEntity page:pagesListFromFirstLemma){
-                    boolean contains = false;
-                    for(SearchIndex index:indexRepository.findAll()){
-                        for(LemmaEntity lemma:nextLemmaEntityList){
-                            if(index.getLemmaID().getLemmaID()==(lemma.getLemmaID())){
-                                if(index.getPageID().getPageID() == page.getPageID() && page.getSiteID().equals(site)){
-                                    contains = true;
-                                }
-                            }
-                        }
-                    }
-                    if(!contains){
+            for (PageEntity page : pagesListFromFirstLemma) {
+                for (String lemma : lemmaList) {
+                    if (indexRepository.findSearchIndicesByPageIDAndLemmaID_Lemma(page, lemma).isEmpty()) {
                         refactoredList.remove(page);
-                        System.out.println("Исключена страница " + page.getPagePath());
+                        System.out.println("Исключена страница: " + page.getPagePath());
                     }
                 }
             }
-            count++;
         }
-        System.out.println("Финальный список");
+
+        System.out.println("Страниц после проверки списка: " + refactoredList.size() + "\nсписок:");
         refactoredList.forEach(pageEntity -> System.out.println(pageEntity.getPagePath()));
         return refactoredList;
     }
 
-    private LinkedHashMap<PageEntity, Integer> sortPagesByRelevance(LinkedHashMap<LemmaEntity, PageEntity> lemmaAndPageList){
-        System.out.println("Сортировка страниц по релевантности лемм");
+    private LinkedHashMap<PageEntity, Integer> countAbsoluteRank(LinkedHashMap<LemmaEntity, PageEntity> lemmaAndPageList) {
+        System.out.println("- Расчет абсолютной релевантности -");
 
         LinkedHashMap<PageEntity, Integer> sortedList = new LinkedHashMap<>();
 
-        for(Map.Entry<LemmaEntity, PageEntity> entry:lemmaAndPageList.entrySet()){
-            if(sortedList.containsKey(entry.getValue()))
-            {
-               int rank = sortedList.get(entry.getValue());
-               sortedList.remove(entry.getValue());
-               sortedList.put(entry.getValue(), (entry.getKey().getFrequency() + rank));
-            }
-            else{
+        for (Map.Entry<LemmaEntity, PageEntity> entry : lemmaAndPageList.entrySet()) {
+            if (sortedList.containsKey(entry.getValue())) {
+                int rank = sortedList.get(entry.getValue());
+                sortedList.remove(entry.getValue());
+                sortedList.put(entry.getValue(), (entry.getKey().getFrequency() + rank));
+            } else {
                 sortedList.put(entry.getValue(), entry.getKey().getFrequency());
             }
         }
-        for(Map.Entry<PageEntity, Integer> entry: sortedList.entrySet()){
+        for (Map.Entry<PageEntity, Integer> entry : sortedList.entrySet()) {
             System.out.println(entry.getKey().getPagePath() + " " + entry.getValue());
         }
         return sortedList;
@@ -287,36 +256,25 @@ public class SearchingServiceImpl implements SearchingService {
 
     private LinkedHashMap<LemmaEntity, PageEntity> compareFinalPagesAndLemmas(List<PageEntity> pagesFilteredByNextLemmas,
                                                                               Set<String> lemmasFromQuery) {
-        System.out.println("Группировка лемм и страниц");
+        System.out.println("- Группировка лемм и страниц -");
         LinkedHashMap<LemmaEntity, PageEntity> finalPagesAndLemmasList = new LinkedHashMap<>();
-        List<LemmaEntity> lemmaEntityList = new ArrayList<>();
 
-        for(String lemma:lemmasFromQuery) {
-            for (LemmaEntity lemmaEntity : lemmaRepository.findAll()) {
-                if (lemmaEntity.getLemma().equalsIgnoreCase(lemma)) {
-                    lemmaEntityList.add(lemmaEntity);
-                }
+        for (PageEntity page : pagesFilteredByNextLemmas) {
+            for (String lemma : lemmasFromQuery) {
+                indexRepository.findSearchIndicesByPageIDAndLemmaID_Lemma(page, lemma)
+                        .forEach(searchIndex ->
+                                finalPagesAndLemmasList.put(searchIndex.getLemmaID(), searchIndex.getPageID()));
             }
         }
 
-        for(PageEntity page:pagesFilteredByNextLemmas){
-            for(SearchIndex searchIndex:indexRepository.findAll()){
-                for(LemmaEntity lemma:lemmaEntityList){
-                    if(searchIndex.getPageID().getPageID() == page.getPageID()
-                            && searchIndex.getLemmaID().getLemmaID() == lemma.getLemmaID()){
-                        finalPagesAndLemmasList.put(lemma,page);
-                    }
-                }
-            }
-        }
-        for(Map.Entry<LemmaEntity, PageEntity> entry:finalPagesAndLemmasList.entrySet()){
+        for (Map.Entry<LemmaEntity, PageEntity> entry : finalPagesAndLemmasList.entrySet()) {
             System.out.println(entry.getKey().getLemma() + " " + entry.getValue().getPagePath());
         }
         return finalPagesAndLemmasList;
     }
 
-    private LinkedHashMap<PageEntity, Integer> sortPages(LinkedHashMap<PageEntity, Integer> finalPages){
-        System.out.println("Сортировка страниц к выдаче по релевантности");
+    private LinkedHashMap<PageEntity, Integer> sortPages(LinkedHashMap<PageEntity, Integer> finalPages) {
+        System.out.println("- Сортировка страниц к выдаче по релевантности -");
         LinkedHashMap<PageEntity, Integer> sortedList = new LinkedHashMap<>();
 
         sortedList = finalPages.entrySet().stream()
@@ -324,11 +282,13 @@ public class SearchingServiceImpl implements SearchingService {
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         Map.Entry::getValue,
-                        (a, b) -> { throw new AssertionError(); },
+                        (a, b) -> {
+                            throw new AssertionError();
+                        },
                         LinkedHashMap::new
                 ));
 
-        for(Map.Entry<PageEntity, Integer> entry: sortedList.entrySet()){
+        for (Map.Entry<PageEntity, Integer> entry : sortedList.entrySet()) {
             System.out.println(entry.getKey().getPagePath() + " " + entry.getValue());
         }
         return sortedList;
