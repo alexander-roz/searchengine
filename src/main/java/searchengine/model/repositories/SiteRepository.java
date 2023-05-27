@@ -6,4 +6,5 @@ import searchengine.model.entities.SiteEntity;
 
 @Repository
 public interface SiteRepository extends JpaRepository<SiteEntity, Integer> {
+    SiteEntity findSiteEntityByUrlIsIgnoreCase(String url);
 }
