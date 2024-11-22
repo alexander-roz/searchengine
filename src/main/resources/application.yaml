@@ -17,11 +17,11 @@ indexing-settings:
   sites:
     - url: https://et-cetera.ru/mobile/
       name: EtCetera
-    - url: http://www.playback.ru/
+    - url: https://www.playback.ru/
       name: Playback
 #    - url: https://www.svetlovka.ru/
 #      name: Svetlovka
 #    - url: https://shm.ru/
-#      name: Исторический музей
+#      name: Historical museum
 #     - url: https://ipfran.ru/
 #       name: Physic institute of Gaponov Grehov

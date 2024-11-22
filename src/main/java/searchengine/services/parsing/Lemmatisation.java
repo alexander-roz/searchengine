@@ -1,9 +1,9 @@
 package searchengine.services.parsing;
 
 import lombok.SneakyThrows;
-import org.apache.lucene.morphology.LuceneMorphology;
 import org.apache.lucene.morphology.russian.RussianLuceneMorphology;
 import org.springframework.stereotype.Component;
+import org.apache.lucene.morphology.LuceneMorphology;
 
 import java.io.IOException;
 import java.util.ArrayList;
